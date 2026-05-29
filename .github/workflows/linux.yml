@@ -6,7 +6,7 @@ on:
 jobs:
   vnc:
     runs-on: ubuntu-24.04
-    timeout-minutes: 360   # tối đa 6h
+    timeout-minutes: 360
     steps:
       - name: Cài đặt các gói cần thiết
         run: |
@@ -16,7 +16,8 @@ jobs:
           # Xoá snap firefox nếu có và cài bản thật từ Mozilla
           sudo snap remove firefox || true
           sudo apt remove --purge firefox -y || true
-          wget -O /tmp/firefox.tar.bz2 "https://download.mozilla.org/?product=firefox-latest&os=linux64&lang=en"
+          # Tải Firefox bản mới nhất (URL đã sửa)
+          wget -O /tmp/firefox.tar.bz2 "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US"
           sudo tar xjf /tmp/firefox.tar.bz2 -C /opt/
           sudo ln -sf /opt/firefox/firefox /usr/local/bin/firefox
           cat <<EOF | sudo tee /usr/share/applications/firefox-custom.desktop
