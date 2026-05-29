@@ -1,0 +1,63 @@
+name: Ubuntu VM with Firefox (no snap) + Xfce4 + VNC + Cloudflare Tunnel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  vnc:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360   # tối đa 6h
+    steps:
+      - name: Cài đặt các gói cần thiết
+        run: |
+          sudo apt update
+          sudo apt install -y wget curl xvfb x11vnc novnc websockify \
+                              xfce4 xfce4-goodies dbus-x11
+          # Xoá snap firefox nếu có và cài bản thật từ Mozilla
+          sudo snap remove firefox || true
+          sudo apt remove --purge firefox -y || true
+          wget -O /tmp/firefox.tar.bz2 "https://download.mozilla.org/?product=firefox-latest&os=linux64&lang=en"
+          sudo tar xjf /tmp/firefox.tar.bz2 -C /opt/
+          sudo ln -sf /opt/firefox/firefox /usr/local/bin/firefox
+          cat <<EOF | sudo tee /usr/share/applications/firefox-custom.desktop
+          [Desktop Entry]
+          Name=Firefox (no snap)
+          Exec=/opt/firefox/firefox %u
+          Terminal=false
+          Type=Application
+          Icon=/opt/firefox/browser/chrome/icons/default/default48.png
+          Categories=Network;WebBrowser;
+          EOF
+
+      - name: Cài đặt cloudflared
+        run: |
+          curl -L --output /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x /tmp/cloudflared
+          sudo mv /tmp/cloudflared /usr/local/bin/
+
+      - name: Thiết lập môi trường Xfce4 trên Xvfb và VNC
+        run: |
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1280x720x24 &
+          sleep 2
+          dbus-launch --exit-with-session xfce4-session &
+          sleep 3
+          # Mật khẩu VNC là 2062007
+          x11vnc -display :99 -forever -shared -passwd 2062007 -rfbport 5900 &
+          sleep 2
+
+      - name: Khởi động noVNC + websockify
+        run: |
+          websockify --web=/usr/share/novnc 8080 localhost:5900 &
+          sleep 2
+
+      - name: Chạy cloudflared tunnel (trycloudflare – không cần token)
+        run: |
+          /usr/local/bin/cloudflared tunnel --url http://localhost:8080 --logfile /tmp/cloudflared.log &
+          sleep 8
+          echo "=== CLOUDFLARE TUNNEL URL ==="
+          grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' /tmp/cloudflared.log | head -1
+          echo "=============================="
+          echo "🔗 Mở link trên bằng trình duyệt, nhập mật khẩu VNC: 2062007"
+          echo "⚠️  Workflow sẽ tự động dừng sau 6 giờ."
+          tail -f /tmp/cloudflared.log
