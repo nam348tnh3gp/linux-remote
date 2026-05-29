@@ -16,9 +16,9 @@ jobs:
           # Xoá snap firefox nếu có và cài bản thật từ Mozilla
           sudo snap remove firefox || true
           sudo apt remove --purge firefox -y || true
-          # Tải Firefox bản mới nhất (URL đã sửa)
-          wget -O /tmp/firefox.tar.bz2 "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US"
-          sudo tar xjf /tmp/firefox.tar.bz2 -C /opt/
+          # Tải Firefox bản mới nhất
+          wget -O /tmp/firefox.tar.xz "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US"
+          sudo tar xJf /tmp/firefox.tar.xz -C /opt/   # dùng xJf cho .tar.xz
           sudo ln -sf /opt/firefox/firefox /usr/local/bin/firefox
           cat <<EOF | sudo tee /usr/share/applications/firefox-custom.desktop
           [Desktop Entry]
@@ -43,7 +43,6 @@ jobs:
           sleep 2
           dbus-launch --exit-with-session xfce4-session &
           sleep 3
-          # Mật khẩu VNC là 2062007
           x11vnc -display :99 -forever -shared -passwd 2062007 -rfbport 5900 &
           sleep 2
 
