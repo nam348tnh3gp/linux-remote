@@ -53,7 +53,7 @@ jobs:
 
       - name: Chạy cloudflared tunnel (trycloudflare – không cần token)
         run: |
-          /usr/local/bin/cloudflared tunnel --url http://localhost:8080 --logfile /tmp/cloudflared.log &
+          /usr/local/bin/cloudflared tunnel --url http://localhost:5900 --logfile /tmp/cloudflared.log &
           sleep 8
           echo "=== CLOUDFLARE TUNNEL URL ==="
           grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' /tmp/cloudflared.log | head -1
