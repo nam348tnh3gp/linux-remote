@@ -58,24 +58,22 @@ jobs:
             dnf|yum)
               docker_exec "$PKG_MGR install -y wget curl xvfb x11vnc xfce4 xfce4-terminal firefox sudo"
               docker_exec "$PKG_MGR install -y epel-release || true"
-              # Cài novnc và websockify từ pip cho Fedora
-              docker_exec "$PKG_MGR install -y python3-pip || true"
-              docker_exec "pip3 install websockify numpy"
+              docker_exec "$PKG_MGR install -y python3-pip git || true"
+              # Dùng --break-system-packages cho Fedora mới
+              docker_exec "pip3 install websockify numpy --break-system-packages 2>/dev/null || pip3 install websockify numpy"
               docker_exec "git clone https://github.com/novnc/noVNC.git /opt/novnc"
               docker_exec "ln -sf /opt/novnc/vnc.html /opt/novnc/index.html"
               ;;
             pacman)
-              # Arch Linux: cài từ pacman và AUR
-              docker_exec "pacman -Syu --noconfirm wget curl xorg-server-xvfb x11vnc xfce4 xfce4-terminal firefox sudo python-pip base-devel git"
-              # Cài websockify từ pip
-              docker_exec "pip install websockify"
-              # Clone noVNC từ GitHub (không có trong pacman)
+              # Arch Linux: dùng pacman để cài python-websockify (có sẵn)
+              docker_exec "pacman -Syu --noconfirm wget curl xorg-server-xvfb x11vnc xfce4 xfce4-terminal firefox sudo git python python-websockify"
+              # Clone noVNC từ GitHub
               docker_exec "git clone https://github.com/novnc/noVNC.git /opt/novnc"
               docker_exec "ln -sf /opt/novnc/vnc.html /opt/novnc/index.html"
               ;;
             apk)
-              docker_exec "apk add wget curl xvfb x11vnc xfce4 xfce4-terminal firefox dbus python3 py3-pip sudo shadow"
-              docker_exec "pip3 install websockify"
+              docker_exec "apk add wget curl xvfb x11vnc xfce4 xfce4-terminal firefox dbus python3 py3-pip sudo shadow git"
+              docker_exec "pip3 install websockify --break-system-packages"
               docker_exec "git clone https://github.com/novnc/noVNC.git /opt/novnc"
               docker_exec "ln -sf /opt/novnc/vnc.html /opt/novnc/index.html"
               ;;
@@ -97,6 +95,23 @@ jobs:
             docker_exec "echo 'vncuser ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers"
           fi
 
+          # Tạo desktop shortcut cho Firefox (tùy chọn)
+          docker_exec "
+            mkdir -p /home/vncuser/.local/share/applications
+            cat > /home/vncuser/.local/share/applications/firefox.desktop << 'EOF'
+[Desktop Entry]
+Version=1.0
+Name=Firefox
+Comment=Browse the web
+Exec=/usr/local/bin/firefox %U
+Icon=firefox
+Terminal=false
+Type=Application
+Categories=Network;WebBrowser;
+EOF
+            chown -R vncuser:vncuser /home/vncuser/.local
+          "
+
       - name: 🚀 Khởi động Xvfb, xfce4, VNC và noVNC (dưới user thường)
         run: |
           docker_exec() {
@@ -107,7 +122,7 @@ jobs:
             fi
           }
           docker_exec "
-            su -l vncuser -s /bin/sh -c '
+            su -l vncuser -s /bin/bash -c '
               export DISPLAY=:99
               mkdir -p ~/.config/xfce4 ~/.cache
               Xvfb :99 -screen 0 1280x720x24 &
@@ -141,7 +156,7 @@ jobs:
             fi
           }
           docker_exec "
-            su -l vncuser -s /bin/sh -c '
+            su -l vncuser -s /bin/bash -c '
               /usr/local/bin/cloudflared tunnel --url http://localhost:8080 --logfile /tmp/cloudflared.log &
               sleep 10
               echo \"=== CLOUDFLARE TUNNEL URL ===\"
