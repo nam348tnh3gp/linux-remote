@@ -1,146 +1,109 @@
-name: 🐧 Multi-Distro Desktop (Xfce4 + VNC + Firefox + Cloudflare Tunnel)
+name: Multi-Distro VM with Firefox + Xfce4 + VNC + Cloudflare Tunnel
 
 on:
   workflow_dispatch:
     inputs:
       distro:
-        description: 'Chọn distro Linux (image trên Docker Hub)'
+        description: 'Chọn bản phân phối Linux'
         required: true
-        default: 'ubuntu:24.04'
+        default: 'ubuntu'
         type: choice
         options:
-          - 'ubuntu:24.04'
-          - 'ubuntu:22.04'
-          - 'debian:bookworm'
-          - 'debian:bullseye'
-          - 'fedora:40'
-          - 'fedora:39'
-          - 'archlinux:latest'
-          - 'alpine:3.20'
-          - 'alpine:3.19'
-          - 'rockylinux:9'
-          - 'rockylinux:8'
-      vnc_password:
-        description: 'Mật khẩu VNC'
-        required: false
-        default: '2062007'
-        type: string
-      vnc_resolution:
-        description: 'Độ phân giải màn hình (WxH)'
-        required: false
-        default: '1280x720'
-        type: string
-      tunnel_timeout:
-        description: 'Thời gian chạy tối đa (phút)'
-        required: false
-        default: '360'
-        type: number
+          - ubuntu
+          - debian
+          - fedora
+          - centos
+          - alpine
+          - arch
 
 jobs:
   vnc:
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ fromJSON(inputs.tunnel_timeout) }}
-    
+    timeout-minutes: 360
+    container:
+      image: ${{ inputs.distro == 'ubuntu' && 'ubuntu:24.04' || inputs.distro == 'debian' && 'debian:bookworm' || inputs.distro == 'fedora' && 'fedora:latest' || inputs.distro == 'centos' && 'centos:stream9' || inputs.distro == 'alpine' && 'alpine:latest' || 'archlinux:latest' }}
+      options: --privileged   # cần cho xvfb và vnc
     steps:
-      - name: 🐳 Chạy Docker container với distro đã chọn
+      - name: Cài đặt các gói cơ bản (theo distro)
         run: |
-          DISTRO="${{ github.event.inputs.distro }}"
-          VNC_PASS="${{ github.event.inputs.vnc_password }}"
-          RESOLUTION="${{ github.event.inputs.vnc_resolution }}"
-          
-          # Xác định package manager và cài đặt lệnh tương ứng
-          docker run --rm -d \
-            --name multi-desktop \
-            -p 5900:5900 \
-            -p 8080:8080 \
-            -e VNC_PASS="$VNC_PASS" \
-            -e RESOLUTION="$RESOLUTION" \
-            --privileged \
-            $DISTRO \
-            sh -c "
-              set -ex
-              
-              # Nhận diện distro và cài gói
-              if [ -f /etc/os-release ]; then
-                . /etc/os-release
-                DISTRO_NAME=\$ID
-              else
-                DISTRO_NAME=unknown
-              fi
-              
-              case \$DISTRO_NAME in
-                ubuntu|debian)
-                  apt update
-                  apt install -y wget curl xvfb x11vnc novnc websockify \
-                                 xfce4 xfce4-goodies dbus-x11 firefox
-                  ;;
-                fedora|rocky)
-                  dnf install -y wget curl xorg-x11-server-Xvfb x11vnc novnc websockify \
-                                 xfce4 xfce4-goodies dbus-x11 firefox
-                  ;;
-                arch)
-                  pacman -Syu --noconfirm
-                  pacman -S --noconfirm wget curl xorg-server-xvfb x11vnc novnc websockify \
-                                 xfce4 xfce4-goodies dbus firefox
-                  ;;
-                alpine)
-                  apk add --no-cache wget curl xvfb x11vnc novnc websockify \
-                                 xfce4 xfce4-goodies dbus firefox
-                  ;;
-                *)
-                  echo 'Distro không được hỗ trợ tự động, thử cài thủ công'
-                  exit 1
-                  ;;
-              esac
-              
-              # Firefox (nếu chưa có hoặc muốn bản mới nhất không snap)
-              if ! command -v firefox >/dev/null 2>&1; then
-                mkdir -p /opt
-                wget -O /tmp/firefox.tar.xz 'https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US'
-                tar xJf /tmp/firefox.tar.xz -C /opt/
-                ln -sf /opt/firefox/firefox /usr/local/bin/firefox
-              fi
-              
-              # Khởi động Xvfb + Xfce4 + VNC
-              export DISPLAY=:99
-              Xvfb :99 -screen 0 \${RESOLUTION}x24 &
-              sleep 2
-              dbus-launch --exit-with-session xfce4-session &
-              sleep 3
-              x11vnc -display :99 -forever -shared -passwd \$VNC_PASS -rfbport 5900 &
-              sleep 2
-              
-              # Websockify (noVNC)
-              websockify --web=/usr/share/novnc 8080 localhost:5900 &
-              sleep 2
-              
-              # Cloudflared tunnel
-              curl -L --output /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-              chmod +x /tmp/cloudflared
-              /tmp/cloudflared tunnel --url http://localhost:8080 --logfile /tmp/cloudflared.log &
-              sleep 8
-              
-              echo '=== CLOUDFLARE TUNNEL URL ==='
-              grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' /tmp/cloudflared.log | head -1
-              echo '=============================='
-              echo 'VNC Password: '\$VNC_PASS
-              echo 'Resolution: \$RESOLUTION'
-              tail -f /tmp/cloudflared.log
-            "
-          
-      - name: 📤 Logs và thông tin kết nối
+          if command -v apt-get &>/dev/null; then
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y wget curl xvfb x11vnc novnc websockify \
+                               xfce4 xfce4-goodies dbus-x11 firefox-esr \
+                               sudo procps net-tools iputils-ping
+            # Xoá firefox snap (chỉ Ubuntu)
+            apt-get remove --purge firefox -y 2>/dev/null || true
+          elif command -v dnf &>/dev/null; then
+            dnf install -y wget curl xvfb x11vnc novnc websockify \
+                           @xfce xfce4-goodies dbus-x11 firefox \
+                           sudo procps-ng net-tools iputils
+          elif command -v yum &>/dev/null; then
+            yum install -y epel-release
+            yum install -y wget curl xvfb x11vnc novnc websockify \
+                           xfce4 xfce4-goodies dbus-x11 firefox \
+                           sudo procps-ng net-tools iputils
+          elif command -v apk &>/dev/null; then
+            apk update
+            apk add wget curl xvfb x11vnc novnc websockify \
+                    xfce4 xfce4-goodies dbus-x11 firefox \
+                    sudo procps net-tools iputils
+          elif command -v pacman &>/dev/null; then
+            pacman -Syu --noconfirm
+            pacman -S --noconfirm wget curl xvfb x11vnc novnc websockify \
+                               xfce4 xfce4-goodies dbus-x11 firefox \
+                               sudo procps net-tools iputils
+          fi
+
+      - name: Cài đặt Firefox bản mới nhất (cho distro không có firefox hoặc muốn bản mới)
         run: |
-          echo "✅ Container đang chạy với distro: ${{ github.event.inputs.distro }}"
-          echo "🔗 Kết nối VNC qua Cloudflare Tunnel tại URL được in ở trên"
-          echo "⚠️  Workflow sẽ tự động dừng sau ${{ github.event.inputs.tunnel_timeout }} phút."
-          
-          # Giữ workflow chạy
-          while docker ps | grep -q multi-desktop; do
-            sleep 30
-          done
-          
-      - name: 🧹 Dọn dẹp container khi kết thúc
-        if: always()
+          # Nếu distro đã cài firefox (firefox-esr, firefox) thì không cần, trừ khi muốn thay thế
+          # Chỉ tải bản mới cho Ubuntu/Debian để tránh snap
+          if command -v apt-get &>/dev/null; then
+            apt-get remove --purge firefox firefox-esr -y 2>/dev/null || true
+            wget -O /tmp/firefox.tar.xz "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US"
+            tar xJf /tmp/firefox.tar.xz -C /opt/
+            ln -sf /opt/firefox/firefox /usr/local/bin/firefox
+            # Tạo desktop entry
+            cat <<EOF > /usr/share/applications/firefox-custom.desktop
+[Desktop Entry]
+Name=Firefox (latest)
+Exec=/opt/firefox/firefox %u
+Terminal=false
+Type=Application
+Icon=/opt/firefox/browser/chrome/icons/default/default48.png
+Categories=Network;WebBrowser;
+EOF
+          fi
+
+      - name: Cài đặt cloudflared (binary amd64)
         run: |
-          docker stop multi-desktop 2>/dev/null || true
-          docker rm multi-desktop 2>/dev/null || true
+          curl -L --output /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x /tmp/cloudflared
+          mv /tmp/cloudflared /usr/local/bin/cloudflared
+
+      - name: Thiết lập môi trường Xfce4 trên Xvfb và VNC
+        run: |
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1280x720x24 &
+          sleep 2
+          dbus-launch --exit-with-session xfce4-session &
+          sleep 3
+          x11vnc -display :99 -forever -shared -passwd 2062007 -rfbport 5900 &
+          sleep 2
+
+      - name: Khởi động noVNC + websockify
+        run: |
+          websockify --web=/usr/share/novnc 8080 localhost:5900 &
+          sleep 2
+
+      - name: Chạy cloudflared tunnel (trycloudflare – không cần token)
+        run: |
+          /usr/local/bin/cloudflared tunnel --url http://localhost:8080 --logfile /tmp/cloudflared.log &
+          sleep 8
+          echo "=== CLOUDFLARE TUNNEL URL ==="
+          grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' /tmp/cloudflared.log | head -1
+          echo "=============================="
+          echo "🔗 Mở link trên bằng trình duyệt, nhập mật khẩu VNC: 2062007"
+          echo "⚠️ Workflow sẽ tự động dừng sau 6 giờ."
+          tail -f /tmp/cloudflared.log
