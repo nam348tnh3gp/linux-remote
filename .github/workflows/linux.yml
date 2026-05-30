@@ -22,18 +22,24 @@ jobs:
     timeout-minutes: 360
     strategy:
       matrix:
-        distro: [ubuntu, debian, fedora, centos, alpine, arch]
+        include:
+          - distro: ubuntu
+            image: ubuntu:24.04
+          - distro: debian
+            image: debian:bookworm
+          - distro: fedora
+            image: fedora:latest
+          - distro: centos
+            image: centos:stream9
+          - distro: alpine
+            image: alpine:latest
+          - distro: arch
+            image: archlinux:latest
       fail-fast: false
     container:
-      image: ${{ 
-        matrix.distro == 'ubuntu' && 'ubuntu:24.04' ||
-        matrix.distro == 'debian' && 'debian:bookworm' ||
-        matrix.distro == 'fedora' && 'fedora:latest' ||
-        matrix.distro == 'centos' && 'centos:stream9' ||
-        matrix.distro == 'alpine' && 'alpine:latest' ||
-        matrix.distro == 'arch' && 'archlinux:latest'
-      }}
+      image: ${{ matrix.image }}
       options: --privileged
+    if: matrix.distro == github.event.inputs.distro
     steps:
       - name: Cài đặt các gói cơ bản (theo distro)
         run: |
