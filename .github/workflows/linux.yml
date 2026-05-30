@@ -65,15 +65,11 @@ jobs:
               docker_exec "ln -sf /opt/novnc/vnc.html /opt/novnc/index.html"
               ;;
             pacman)
-              # === Cấu hình đặc biệt cho Arch Linux (tránh màn hình đen) ===
+              # Arch Linux - cài đặt đầy đủ, không có dbus-x11
               docker_exec "pacman -Syu --noconfirm"
-              # Các gói cần thiết: XFCE đầy đủ, font, icon, dbus, VNC, noVNC
               docker_exec "pacman -S --noconfirm wget curl xorg-server-xvfb x11vnc xfce4 xfce4-terminal firefox sudo python-pip base-devel git"
-              # Bổ sung gói cho giao diện hoạt động ổn định
-              docker_exec "pacman -S --noconfirm xfce4-session xfwm4 adwaita-icon-theme hicolor-icon-theme ttf-dejavu xorg-xinit dbus-x11"
-              # Cài websockify
+              docker_exec "pacman -S --noconfirm xfce4-session xfwm4 adwaita-icon-theme hicolor-icon-theme ttf-dejavu xorg-xinit dbus"
               docker_exec "pip install websockify --break-system-packages"
-              # Clone noVNC
               docker_exec "git clone https://github.com/novnc/noVNC.git /opt/novnc"
               docker_exec "ln -sf /opt/novnc/vnc.html /opt/novnc/index.html"
               ;;
@@ -109,7 +105,7 @@ jobs:
           docker_exec "su -l vncuser -c 'echo \"startxfce4\" > ~/.xsession'"
           docker_exec "su -l vncuser -c 'echo \"exec startxfce4\" > ~/.xinitrc'"
 
-          # Đối với Arch, copy cấu hình mẫu XFCE vào home để tránh lỗi missing files
+          # Đối với Arch, copy cấu hình mẫu XFCE vào home
           if [ "$PKG_MGR" = "pacman" ]; then
             docker_exec "su -l vncuser -c 'mkdir -p ~/.config/xfce4 ~/.config/xfce4-session'"
             docker_exec "cp -r /etc/xdg/xfce4/* ~vncuser/.config/xfce4/ 2>/dev/null || true"
@@ -132,26 +128,23 @@ jobs:
               
               export PATH=/opt/venv/bin:\$PATH
               
-              # Dọn dẹp lock cũ
               rm -f /tmp/.X99-lock 2>/dev/null
               
-              # Khởi động dbus daemon (cần cho XFCE)
-              eval \"\$(dbus-launch --auto-syntax)\"
-              export DBUS_SESSION_BUS_ADDRESS
+              # Khởi động dbus (nếu chưa chạy)
+              if [ -z \"\$DBUS_SESSION_BUS_ADDRESS\" ]; then
+                eval \"\$(dbus-launch --auto-syntax)\"
+                export DBUS_SESSION_BUS_ADDRESS
+              fi
               
-              # Khởi động Xvfb
               Xvfb :99 -screen 0 1280x720x24 -ac &
               sleep 3
               
-              # Khởi động XFCE
               startxfce4 &
               sleep 5
               
-              # Khởi động x11vnc
               x11vnc -display :99 -forever -shared -passwd ${{ github.event.inputs.vnc_password }} -rfbport 5900 -noxdamage &
               sleep 2
               
-              # Khởi động noVNC
               if command -v websockify >/dev/null 2>&1; then
                 if [ -d /opt/novnc ]; then
                   websockify --web=/opt/novnc 8080 localhost:5900 &
