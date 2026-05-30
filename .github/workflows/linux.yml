@@ -20,9 +20,20 @@ jobs:
   vnc:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    strategy:
+      matrix:
+        distro: [ubuntu, debian, fedora, centos, alpine, arch]
+      fail-fast: false
     container:
-      image: ${{ inputs.distro == 'ubuntu' && 'ubuntu:24.04' || inputs.distro == 'debian' && 'debian:bookworm' || inputs.distro == 'fedora' && 'fedora:latest' || inputs.distro == 'centos' && 'centos:stream9' || inputs.distro == 'alpine' && 'alpine:latest' || 'archlinux:latest' }}
-      options: --privileged   # cần cho xvfb và vnc
+      image: ${{ 
+        matrix.distro == 'ubuntu' && 'ubuntu:24.04' ||
+        matrix.distro == 'debian' && 'debian:bookworm' ||
+        matrix.distro == 'fedora' && 'fedora:latest' ||
+        matrix.distro == 'centos' && 'centos:stream9' ||
+        matrix.distro == 'alpine' && 'alpine:latest' ||
+        matrix.distro == 'arch' && 'archlinux:latest'
+      }}
+      options: --privileged
     steps:
       - name: Cài đặt các gói cơ bản (theo distro)
         run: |
@@ -32,7 +43,6 @@ jobs:
             apt-get install -y wget curl xvfb x11vnc novnc websockify \
                                xfce4 xfce4-goodies dbus-x11 firefox-esr \
                                sudo procps net-tools iputils-ping
-            # Xoá firefox snap (chỉ Ubuntu)
             apt-get remove --purge firefox -y 2>/dev/null || true
           elif command -v dnf &>/dev/null; then
             dnf install -y wget curl xvfb x11vnc novnc websockify \
@@ -55,17 +65,14 @@ jobs:
                                sudo procps net-tools iputils
           fi
 
-      - name: Cài đặt Firefox bản mới nhất (cho distro không có firefox hoặc muốn bản mới)
+      - name: Cài đặt Firefox bản mới nhất (Ubuntu/Debian)
+        if: matrix.distro == 'ubuntu' || matrix.distro == 'debian'
         run: |
-          # Nếu distro đã cài firefox (firefox-esr, firefox) thì không cần, trừ khi muốn thay thế
-          # Chỉ tải bản mới cho Ubuntu/Debian để tránh snap
-          if command -v apt-get &>/dev/null; then
-            apt-get remove --purge firefox firefox-esr -y 2>/dev/null || true
-            wget -O /tmp/firefox.tar.xz "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US"
-            tar xJf /tmp/firefox.tar.xz -C /opt/
-            ln -sf /opt/firefox/firefox /usr/local/bin/firefox
-            # Tạo desktop entry
-            cat <<EOF > /usr/share/applications/firefox-custom.desktop
+          apt-get remove --purge firefox firefox-esr -y 2>/dev/null || true
+          wget -O /tmp/firefox.tar.xz "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US"
+          tar xJf /tmp/firefox.tar.xz -C /opt/
+          ln -sf /opt/firefox/firefox /usr/local/bin/firefox
+          cat <<EOF > /usr/share/applications/firefox-custom.desktop
 [Desktop Entry]
 Name=Firefox (latest)
 Exec=/opt/firefox/firefox %u
@@ -74,15 +81,14 @@ Type=Application
 Icon=/opt/firefox/browser/chrome/icons/default/default48.png
 Categories=Network;WebBrowser;
 EOF
-          fi
 
-      - name: Cài đặt cloudflared (binary amd64)
+      - name: Cài đặt cloudflared
         run: |
           curl -L --output /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x /tmp/cloudflared
           mv /tmp/cloudflared /usr/local/bin/cloudflared
 
-      - name: Thiết lập môi trường Xfce4 trên Xvfb và VNC
+      - name: Thiết lập Xfce4 trên Xvfb và VNC
         run: |
           export DISPLAY=:99
           Xvfb :99 -screen 0 1280x720x24 &
@@ -97,13 +103,12 @@ EOF
           websockify --web=/usr/share/novnc 8080 localhost:5900 &
           sleep 2
 
-      - name: Chạy cloudflared tunnel (trycloudflare – không cần token)
+      - name: Chạy cloudflared tunnel
         run: |
           /usr/local/bin/cloudflared tunnel --url http://localhost:8080 --logfile /tmp/cloudflared.log &
           sleep 8
           echo "=== CLOUDFLARE TUNNEL URL ==="
           grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' /tmp/cloudflared.log | head -1
           echo "=============================="
-          echo "🔗 Mở link trên bằng trình duyệt, nhập mật khẩu VNC: 2062007"
-          echo "⚠️ Workflow sẽ tự động dừng sau 6 giờ."
+          echo "🔗 Mở link trên, nhập mật khẩu VNC: 2062007"
           tail -f /tmp/cloudflared.log
