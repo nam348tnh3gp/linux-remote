@@ -53,11 +53,11 @@ jobs:
           case $PKG_MGR in
             apt)
               # Ubuntu/Debian: dùng firefox-esr thay vì firefox (có sẵn trong repo)
-              docker_exec "apt update && apt install -y wget curl xvfb x11vnc novnc websockify xfce4 xfce4-goodies xfce4-terminal dbus-x11 firefox-esr sudo"
+              docker_exec "apt update && apt install -y wget curl xvfb x11vnc novnc websockify xfce4 xfce4-goodies xfce4-terminal dbus-x11 firefox-esr git sudo"
               ;;
             dnf|yum)
               # Fedora: sửa tên gói xvfb và cài đặt XFCE đúng cách
-              docker_exec "$PKG_MGR install -y wget curl xorg-x11-server-Xvfb x11vnc xfce4-terminal firefox sudo"
+              docker_exec "$PKG_MGR install -y wget git curl xorg-x11-server-Xvfb x11vnc xfce4-terminal firefox sudo"
               # Cài đặt XFCE desktop (nhóm hoặc các gói chính)
               docker_exec "$PKG_MGR groupinstall -y 'XFCE Desktop' || $PKG_MGR install -y @xfce-desktop || $PKG_MGR install -y xfce4-session xfwm4 xfce4-panel xfdesktop thunar"
               docker_exec "$PKG_MGR install -y epel-release || true"
@@ -77,7 +77,7 @@ jobs:
               docker_exec "ln -sf /opt/novnc/vnc.html /opt/novnc/index.html"
               ;;
             apk)
-              docker_exec "apk add wget curl xvfb x11vnc xfce4 xfce4-terminal firefox dbus python3 py3-pip sudo shadow"
+              docker_exec "apk add wget git curl xvfb x11vnc xfce4 xfce4-terminal firefox dbus python3 py3-pip sudo shadow"
               docker_exec "apk add adwaita-icon-theme hicolor-icon-theme xfce4-session xfwm4"
               # Alpine không có gói vte, xfce4-terminal tự hoạt động
               docker_exec "pip3 install websockify --break-system-packages"
