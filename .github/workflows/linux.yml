@@ -1,4 +1,4 @@
-name: 🖥️ Linux Desktop (VNC) with Cloudflare Tunnel – Multi‑Distro (non‑root user)
+name: 🖥️ Linux Desktop (VNC) with Cloudflare Tunnel – Multi‑Distro (có terminal)
 
 on:
   workflow_dispatch:
@@ -37,14 +37,10 @@ jobs:
             sleep infinity
           sleep 3
 
-      - name: 📦 Cài đặt gói và tạo user thường có quyền sudo
+      - name: 📦 Cài đặt gói và thiết lập môi trường (root)
         run: |
           docker_exec() {
-            if docker exec desktop-env which bash >/dev/null 2>&1; then
-              docker exec desktop-env bash -c "$1"
-            else
-              docker exec desktop-env sh -c "$1"
-            fi
+            docker exec desktop-env bash -c "$1" 2>/dev/null || docker exec desktop-env sh -c "$1"
           }
 
           PKG_MGR=$(docker_exec "if command -v apt >/dev/null 2>&1; then echo apt; elif command -v dnf >/dev/null 2>&1; then echo dnf; elif command -v yum >/dev/null 2>&1; then echo yum; elif command -v pacman >/dev/null 2>&1; then echo pacman; elif command -v apk >/dev/null 2>&1; then echo apk; else echo unsupported; fi")
@@ -52,40 +48,21 @@ jobs:
 
           case $PKG_MGR in
             apt)
-              docker_exec "apt update && apt install -y wget curl xvfb x11vnc novnc websockify xfce4 xfce4-goodies xfce4-terminal dbus-x11 firefox sudo bash"
+              docker_exec "apt update && apt install -y wget curl xvfb x11vnc novnc websockify xfce4 xfce4-goodies xfce4-terminal dbus-x11 firefox sudo"
               ;;
             dnf|yum)
-              docker_exec "$PKG_MGR install -y wget curl xvfb x11vnc novnc websockify xfce4 xfce4-terminal firefox sudo bash"
+              docker_exec "$PKG_MGR install -y wget curl xvfb x11vnc novnc websockify xfce4 xfce4-terminal firefox sudo"
               docker_exec "$PKG_MGR install -y epel-release || true"
               docker_exec "$PKG_MGR install -y novnc websockify || pip3 install websockify --break-system-packages || true"
               ;;
             pacman)
-              docker_exec "pacman -Syu --noconfirm wget curl xorg-server-xvfb x11vnc novnc websockify xfce4 xfce4-terminal firefox sudo bash"
+              docker_exec "pacman -Syu --noconfirm wget curl xorg-server-xvfb x11vnc novnc websockify xfce4 xfce4-terminal firefox sudo"
               ;;
             apk)
-              docker_exec "apk add wget curl xvfb x11vnc xfce4 xfce4-terminal firefox dbus novnc python3 py3-pip sudo shadow bash"
+              docker_exec "apk add wget curl xvfb x11vnc xfce4 xfce4-terminal firefox dbus novnc sudo python3 py3-pip"
               docker_exec "pip3 install websockify --break-system-packages"
               ;;
           esac
-
-          # Tạo user runner (shell = bash)
-          docker_exec "useradd -m -s /bin/bash -u 1000 runner 2>/dev/null || adduser -D -s /bin/bash -u 1000 runner 2>/dev/null || true"
-          docker_exec "echo 'allowed_users=anybody' > /etc/X11/Xwrapper.config 2>/dev/null || true"
-
-          # Sudo NOPASSWD
-          case $PKG_MGR in
-            apt|debian)
-              docker_exec "usermod -aG sudo runner && echo 'runner ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers"
-              ;;
-            dnf|yum|fedora|pacman|arch)
-              docker_exec "usermod -aG wheel runner && echo 'runner ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers"
-              ;;
-            apk|alpine)
-              docker_exec "adduser runner wheel && echo '%wheel ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers"
-              ;;
-          esac
-
-          docker_exec "passwd -d root"
 
           docker_exec "curl -L --output /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && chmod +x /tmp/cloudflared && mv /tmp/cloudflared /usr/local/bin/"
 
@@ -93,54 +70,58 @@ jobs:
             docker_exec "snap remove firefox 2>/dev/null || true; apt remove --purge firefox -y 2>/dev/null || true; wget -O /tmp/firefox.tar.xz 'https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US' && tar xJf /tmp/firefox.tar.xz -C /opt/ && ln -sf /opt/firefox/firefox /usr/local/bin/firefox"
           fi
 
-          docker_exec "mkdir -p /run/user/1000 && chown runner:runner /run/user/1000 2>/dev/null || true"
-
-      - name: 🚀 Khởi động Xvfb, startxfce4, VNC và noVNC
+      - name: 👤 Tạo user thường với sudo không cần mật khẩu
         run: |
-          docker exec desktop-env sh -c "
-            export DISPLAY=:99
-            Xvfb :99 -screen 0 1280x720x24 -ac &
-            sleep 3
-            if ! pgrep -x Xvfb >/dev/null; then
-              echo '❌ Xvfb failed'
-              exit 1
+          docker exec desktop-env bash -c "
+            # Tạo user 'vncuser' (nếu chưa có) với home directory
+            id -u vncuser &>/dev/null || useradd -m -s /bin/bash vncuser
+            # Thêm vào nhóm sudo/wheel tùy distro
+            if getent group sudo >/dev/null; then
+              usermod -aG sudo vncuser
+            elif getent group wheel >/dev/null; then
+              usermod -aG wheel vncuser
             fi
-            # Chạy startxfce4 với dbus-launch (đảm bảo môi trường)
-            su - runner -c 'dbus-launch --exit-with-session startxfce4' &
-            sleep 8
-            # Kiểm tra nếu startxfce4 không chạy thì fallback xfce4-session
-            if ! pgrep -f 'xfce' >/dev/null; then
-              echo '⚠️ startxfce4 failed, trying xfce4-session...'
-              su - runner -c 'dbus-launch --exit-with-session xfce4-session' &
-              sleep 5
-            fi
-            # VNC
-            x11vnc -display :99 -forever -shared -passwd ${{ github.event.inputs.vnc_password }} -rfbport 5900 -noxdamage &
-            # noVNC
-            if command -v websockify >/dev/null 2>&1; then
-              if [ -d /usr/share/novnc ]; then
-                websockify --web=/usr/share/novnc 8080 localhost:5900 &
-              elif [ -d /usr/share/novnc/utils ]; then
-                websockify --web=/usr/share/novnc/utils 8080 localhost:5900 &
-              else
-                websockify 8080 localhost:5900 &
-              fi
-            else
-              echo '⚠️ websockify not found, noVNC disabled'
-            fi
-            sleep 3
-            echo '✅ Desktop started. If still black, check processes: ps aux | grep X'
+            # Cho phép sudo không cần mật khẩu
+            echo 'vncuser ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
           "
 
-      - name: 🌐 Chạy Cloudflare Tunnel (trycloudflare)
+      - name: 🚀 Khởi động Xvfb, xfce4, VNC và noVNC (dưới user vncuser)
         run: |
-          docker exec desktop-env sh -c "
-            /usr/local/bin/cloudflared tunnel --url http://localhost:8080 --logfile /tmp/cloudflared.log &
-            sleep 10
-            echo '=== CLOUDFLARE TUNNEL URL ==='
-            grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' /tmp/cloudflared.log | head -1
-            echo '=============================='
-            echo '🔗 Mở link trên, nhập mật khẩu VNC: ${{ github.event.inputs.vnc_password }}'
-            echo '⚠️  Workflow timeout 6h.'
-            tail -f /tmp/cloudflared.log
+          docker exec desktop-env bash -c "
+            export DISPLAY=:99
+            # Dùng su để chạy các tiến trình dưới user vncuser
+            su - vncuser -c '
+              Xvfb :99 -screen 0 1280x720x24 &
+              sleep 2
+              dbus-launch --exit-with-session xfce4-session &
+              sleep 3
+              x11vnc -display :99 -forever -shared -passwd ${{ github.event.inputs.vnc_password }} -rfbport 5900 &
+              if command -v websockify >/dev/null 2>&1; then
+                if [ -d /usr/share/novnc ]; then
+                  websockify --web=/usr/share/novnc 8080 localhost:5900 &
+                elif [ -d /usr/share/novnc/utils ]; then
+                  websockify --web=/usr/share/novnc/utils 8080 localhost:5900 &
+                else
+                  websockify 8080 localhost:5900 &
+                fi
+              else
+                echo \"⚠️ websockify not found, noVNC không khởi động\"
+              fi
+            '
+            sleep 3
+          "
+
+      - name: 🌐 Chạy Cloudflare Tunnel (trycloudflare) dưới user vncuser
+        run: |
+          docker exec desktop-env bash -c "
+            su - vncuser -c '
+              /usr/local/bin/cloudflared tunnel --url http://localhost:8080 --logfile /tmp/cloudflared.log &
+              sleep 10
+              echo \"=== CLOUDFLARE TUNNEL URL ===\"
+              grep -o \"https://[-0-9a-z]*\.trycloudflare\.com\" /tmp/cloudflared.log | head -1
+              echo \"==============================\"
+              echo \"🔗 Mở link trên bằng trình duyệt, nhập mật khẩu VNC: ${{ github.event.inputs.vnc_password }}\"
+              echo \"⚠️ Workflow sẽ tự động dừng sau 6 giờ (timeout).\"
+              tail -f /tmp/cloudflared.log
+            '
           "
