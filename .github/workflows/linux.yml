@@ -32,46 +32,29 @@ jobs:
           run: |
             set -ex
             
-            # Xác định loại distro
+            # Hàm cài đặt gói theo distro
             if command -v apt-get >/dev/null; then
-              PKG_MANAGER="apt-get"
-              UPDATE="apt-get update"
-              INSTALL="apt-get install -y --no-install-recommends"
-              # Cài thêm tzdata để tránh interactive
-              $UPDATE
-              $INSTALL tzdata wget curl xvfb x11vnc novnc websockify xfce4 xfce4-goodies dbus-x11
-              # Xoá snap firefox và cài bản thật
+              apt-get update
+              apt-get install -y --no-install-recommends wget curl xvfb x11vnc novnc websockify xfce4 xfce4-goodies dbus-x11
               apt-get remove --purge firefox -y || true
             elif command -v yum >/dev/null; then
-              PKG_MANAGER="yum"
-              UPDATE="yum update -y"
-              INSTALL="yum install -y"
-              $UPDATE
-              $INSTALL wget curl xorg-x11-server-Xvfb x11vnc novnc websockify epel-release
-              $INSTALL xfce4 xfce4-goodies dbus-x11
-              # Fedora/CentOS có firefox trong repo, nhưng có thể là snap? thôi dùng repo
-              $INSTALL firefox
-              # Xoá snap nếu có (thường không)
+              yum update -y
+              yum install -y wget curl xorg-x11-server-Xvfb x11vnc novnc websockify epel-release
+              yum install -y xfce4 xfce4-goodies dbus-x11 firefox
             elif command -v apk >/dev/null; then
-              PKG_MANAGER="apk"
-              UPDATE="apk update"
-              INSTALL="apk add --no-cache"
-              $UPDATE
-              $INSTALL wget curl xvfb x11vnc novnc websockify xfce4 xfce4-terminal dbus
-              # Alpine cần thêm community repo cho novnc?
-              # Firefox có sẵn? Có thể cài firefox-esr
-              $INSTALL firefox-esr
+              apk update
+              apk add --no-cache wget curl xvfb x11vnc novnc websockify xfce4 xfce4-terminal dbus firefox-esr
             else
               echo "Unsupported distro"
               exit 1
             fi
             
-            # Cài Firefox bản mới nhất cho Ubuntu/Debian (nếu chưa có)
+            # Cài Firefox bản mới nhất cho Ubuntu/Debian (không snap)
             if command -v apt-get >/dev/null; then
               wget -O /tmp/firefox.tar.xz "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US"
               tar xJf /tmp/firefox.tar.xz -C /opt/
               ln -sf /opt/firefox/firefox /usr/local/bin/firefox
-              cat <<EOF | tee /usr/share/applications/firefox-custom.desktop
+              cat <<EOF > /usr/share/applications/firefox-custom.desktop
               [Desktop Entry]
               Name=Firefox (no snap)
               Exec=/opt/firefox/firefox %u
@@ -82,7 +65,7 @@ jobs:
               EOF
             fi
             
-            # Cài cloudflared
+            # Cài cloudflared (bản amd64)
             curl -L --output /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
             chmod +x /tmp/cloudflared
             mv /tmp/cloudflared /usr/local/bin/
