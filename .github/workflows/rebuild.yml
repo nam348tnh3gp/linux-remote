@@ -1,0 +1,78 @@
+name: 🔍 Debug Cloudflared on Alpine x86_32
+
+on:
+  workflow_dispatch:  # Bạn chạy thủ công khi cần debug
+
+jobs:
+  debug:
+    name: Run cloudflared in i386/alpine
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🐳 Run Docker container (i386/alpine)
+        run: |
+          docker run --rm -v $PWD:/workspace -w /workspace i386/alpine:latest sh -c "
+            set -ex
+
+            # 1. Cập nhật và cài công cụ debug
+            apk update
+            apk add --no-cache curl strace file gdb musl-dbg
+
+            # 2. Tải cloudflared mới nhất cho linux-386
+            echo '📥 Downloading latest cloudflared for linux-386...'
+            curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-386 -o cloudflared
+            chmod +x cloudflared
+
+            # 3. Kiểm tra thông tin binary
+            echo '🔍 File info:'
+            file cloudflared
+            ldd cloudflared || true
+
+            # 4. Chạy thử --version (bắt lỗi nếu có)
+            echo '🧪 Running --version:'
+            ./cloudflared --version || echo '❌ Exit code: '\$?
+
+            # 5. Debug với strace (ghi lại tất cả syscall)
+            echo '📜 Running with strace (full syscall trace)...'
+            strace -f -o strace_full.log ./cloudflared --version 2>&1 || true
+
+            # 6. Chỉ lọc các syscall lỗi và warning
+            echo '⚠️ Filtering failed syscalls and warnings:'
+            grep -E 'unimplemented|ENOSYS|EPERM|EFAULT|SIGSEGV|SIGSYS|future|warning|failed' strace_full.log | tee syscall_errors.log || echo '✅ No errors found in strace'
+
+            # 7. Chạy với --verbose để xem log nội bộ cloudflared
+            echo '📢 Running with --verbose:'
+            ./cloudflared tunnel --url localhost:8080 --log-level debug --verbose 2>&1 | head -n 200 || true
+
+            # 8. Thử dùng netcat để kiểm tra network cơ bản (tùy chọn)
+            echo '🌐 Testing basic network connectivity...'
+            nc -zv 1.1.1.1 443 || echo 'netcat failed'
+
+            # 9. Kiểm tra memory/stack dump nếu crash (dùng gdb)
+            echo '🔧 Attempting GDB backtrace (if core dumped)...'
+            ulimit -c unlimited
+            ./cloudflared --version || true
+            if [ -f core ]; then
+              gdb -batch -ex 'bt' ./cloudflared core || true
+            else
+              echo 'No core dump found'
+            fi
+          "
+
+      - name: 📤 Upload logs (artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflared-debug-logs
+          path: |
+            strace_full.log
+            syscall_errors.log
+          retention-days: 7
+
+      - name: 📋 Print summary of errors (short)
+        run: |
+          echo "=== 📋 SUMMARY OF ERRORS/WARNINGS ==="
+          if [ -f syscall_errors.log ]; then
+            cat syscall_errors.log
+          else
+            echo "No error log found"
+          fi
