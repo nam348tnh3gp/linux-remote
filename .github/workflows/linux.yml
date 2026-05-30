@@ -16,7 +16,7 @@ on:
           - archlinux:latest
           - alpine:3.19
       vnc_password:
-        description: 'Mật khẩu VNC'
+        description: 'Mật khẩu VNC & user login'
         required: false
         default: '2062007'
         type: string
@@ -52,13 +52,10 @@ jobs:
 
           case $PKG_MGR in
             apt)
-              # Ubuntu/Debian: dùng firefox-esr thay vì firefox (có sẵn trong repo)
               docker_exec "apt update && apt install -y wget curl xvfb x11vnc novnc websockify xfce4 xfce4-goodies xfce4-terminal dbus-x11 firefox-esr git sudo"
               ;;
             dnf|yum)
-              # Fedora: sửa tên gói xvfb và cài đặt XFCE đúng cách
               docker_exec "$PKG_MGR install -y wget git curl xorg-x11-server-Xvfb x11vnc xfce4-terminal firefox sudo"
-              # Cài đặt XFCE desktop (nhóm hoặc các gói chính)
               docker_exec "$PKG_MGR groupinstall -y 'XFCE Desktop' || $PKG_MGR install -y @xfce-desktop || $PKG_MGR install -y xfce4-session xfwm4 xfce4-panel xfdesktop thunar"
               docker_exec "$PKG_MGR install -y epel-release || true"
               docker_exec "$PKG_MGR install -y python3-pip || true"
@@ -79,7 +76,6 @@ jobs:
             apk)
               docker_exec "apk add wget git curl xvfb x11vnc xfce4 xfce4-terminal firefox dbus python3 py3-pip sudo shadow"
               docker_exec "apk add adwaita-icon-theme hicolor-icon-theme xfce4-session xfwm4"
-              # Alpine không có gói vte, xfce4-terminal tự hoạt động
               docker_exec "pip3 install websockify --break-system-packages"
               docker_exec "git clone https://github.com/novnc/noVNC.git /opt/novnc"
               docker_exec "ln -sf /opt/novnc/vnc.html /opt/novnc/index.html"
@@ -88,22 +84,28 @@ jobs:
 
           docker_exec "curl -L --output /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && chmod +x /tmp/cloudflared && mv /tmp/cloudflared /usr/local/bin/"
 
-          # Cài Firefox từ Mozilla cho Ubuntu/Debian (vì firefox-esr có thể cũ, nhưng vẫn dùng được)
-          # Tuy nhiên, nếu muốn bản mới nhất, giữ nguyên cách cũ, nhưng cần xóa firefox-esr trước
           if [ "$PKG_MGR" = "apt" ]; then
             docker_exec "apt remove --purge firefox-esr -y 2>/dev/null || true"
             docker_exec "snap remove firefox 2>/dev/null || true"
             docker_exec "wget -O /tmp/firefox.tar.xz 'https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US' && tar xJf /tmp/firefox.tar.xz -C /opt/ && ln -sf /opt/firefox/firefox /usr/local/bin/firefox"
           fi
 
-          # Tạo user thường
+          # Tạo user thường và đặt mật khẩu (trùng với VNC password)
+          VNC_PASS="${{ github.event.inputs.vnc_password }}"
           if [ "$PKG_MGR" = "apk" ]; then
             docker_exec "adduser -D -s /bin/sh vncuser"
+            docker_exec "echo 'vncuser:${VNC_PASS}' | chpasswd"
             docker_exec "echo 'vncuser ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers"
           else
             docker_exec "useradd -m -s /bin/bash vncuser"
+            docker_exec "echo 'vncuser:${VNC_PASS}' | chpasswd"
             docker_exec "echo 'vncuser ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers"
           fi
+
+          # Tự động đăng nhập XFCE (bỏ màn hình login)
+          docker_exec "mkdir -p /etc/lightdm /home/vncuser/.config/lightdm"
+          docker_exec "echo -e '[Seat:*]\nautologin-user=vncuser\nautologin-user-timeout=0\nuser-session=xfce' > /etc/lightdm/lightdm.conf"
+          docker_exec "chown -R vncuser:vncuser /home/vncuser/.config"
 
           docker_exec "chown -R vncuser:vncuser /opt/novnc 2>/dev/null || true"
           docker_exec "chown -R vncuser:vncuser /opt/venv 2>/dev/null || true"
@@ -144,8 +146,12 @@ jobs:
               Xvfb :99 -screen 0 1280x720x24 -ac &
               sleep 3
               
+              # Chạy XFCE session trực tiếp (nếu lightdm không được dùng)
               startxfce4 &
               sleep 8
+              
+              # Nếu vẫn có màn hình login, kill lightdm (nếu chạy)
+              pkill lightdm 2>/dev/null || true
               
               x11vnc -display :99 -forever -shared -passwd ${{ github.event.inputs.vnc_password }} -rfbport 5900 -noxdamage &
               sleep 2
