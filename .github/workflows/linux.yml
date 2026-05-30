@@ -20,26 +20,9 @@ jobs:
   vnc:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
-    strategy:
-      matrix:
-        include:
-          - distro: ubuntu
-            image: ubuntu:24.04
-          - distro: debian
-            image: debian:bookworm
-          - distro: fedora
-            image: fedora:latest
-          - distro: centos
-            image: centos:stream9
-          - distro: alpine
-            image: alpine:latest
-          - distro: arch
-            image: archlinux:latest
-      fail-fast: false
     container:
-      image: ${{ matrix.image }}
+      image: ${{ github.event.inputs.distro == 'ubuntu' && 'ubuntu:24.04' || github.event.inputs.distro == 'debian' && 'debian:bookworm' || github.event.inputs.distro == 'fedora' && 'fedora:latest' || github.event.inputs.distro == 'centos' && 'centos:stream9' || github.event.inputs.distro == 'alpine' && 'alpine:latest' || 'archlinux:latest' }}
       options: --privileged
-    if: matrix.distro == github.event.inputs.distro
     steps:
       - name: Cài đặt các gói cơ bản (theo distro)
         run: |
@@ -72,7 +55,7 @@ jobs:
           fi
 
       - name: Cài đặt Firefox bản mới nhất (Ubuntu/Debian)
-        if: matrix.distro == 'ubuntu' || matrix.distro == 'debian'
+        if: github.event.inputs.distro == 'ubuntu' || github.event.inputs.distro == 'debian'
         run: |
           apt-get remove --purge firefox firefox-esr -y 2>/dev/null || true
           wget -O /tmp/firefox.tar.xz "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US"
