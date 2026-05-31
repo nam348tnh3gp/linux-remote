@@ -52,11 +52,10 @@ jobs:
 
           case $PKG_MGR in
             apt)
-              # Ubuntu/Debian: không cài firefox từ apt, sẽ tải từ Mozilla sau
-              docker_exec "apt update && apt install -y wget curl xvfb x11vnc novnc websockify xfce4 xfce4-goodies xfce4-terminal dbus-x11 git sudo"
+              docker_exec "apt update && apt install -y wget curl xvfb x11vnc novnc websockify xfce4 xfce4-goodies xfce4-terminal dbus-x11 git sudo mesa-utils glx-utils x11-utils"
               ;;
             dnf|yum)
-              docker_exec "$PKG_MGR install -y wget git curl xorg-x11-server-Xvfb x11vnc xfce4-terminal firefox sudo"
+              docker_exec "$PKG_MGR install -y wget git curl xorg-x11-server-Xvfb x11vnc xfce4-terminal firefox sudo mesa-utils glx-utils"
               docker_exec "$PKG_MGR groupinstall -y 'XFCE Desktop' || $PKG_MGR install -y @xfce-desktop || $PKG_MGR install -y xfce4-session xfwm4 xfce4-panel xfdesktop thunar"
               docker_exec "$PKG_MGR install -y epel-release || true"
               docker_exec "$PKG_MGR install -y python3-pip || true"
@@ -68,14 +67,14 @@ jobs:
               ;;
             pacman)
               docker_exec "pacman -Syu --noconfirm"
-              docker_exec "pacman -S --noconfirm wget curl xorg-server-xvfb x11vnc xfce4 xfce4-terminal firefox sudo python-pip base-devel git"
+              docker_exec "pacman -S --noconfirm wget curl xorg-server-xvfb x11vnc xfce4 xfce4-terminal firefox sudo python-pip base-devel git mesa-utils glx-utils"
               docker_exec "pacman -S --noconfirm xfce4-session xfwm4 adwaita-icon-theme hicolor-icon-theme ttf-dejavu xorg-xinit dbus"
               docker_exec "pip install websockify --break-system-packages"
               docker_exec "git clone https://github.com/novnc/noVNC.git /opt/novnc"
               docker_exec "ln -sf /opt/novnc/vnc.html /opt/novnc/index.html"
               ;;
             apk)
-              docker_exec "apk add wget git curl xvfb x11vnc xfce4 xfce4-terminal firefox dbus python3 py3-pip sudo shadow"
+              docker_exec "apk add wget git curl xvfb x11vnc xfce4 xfce4-terminal firefox dbus python3 py3-pip sudo shadow mesa-utils glx-utils"
               docker_exec "apk add adwaita-icon-theme hicolor-icon-theme xfce4-session xfwm4"
               docker_exec "pip3 install websockify --break-system-packages"
               docker_exec "git clone https://github.com/novnc/noVNC.git /opt/novnc"
@@ -119,7 +118,7 @@ jobs:
             docker_exec "chown -R vncuser:vncuser ~vncuser/.config"
           fi
 
-      - name: 🚀 Khởi động Xvfb, xfce4, VNC và noVNC
+      - name: 🚀 Khởi động Xvfb, xfce4, VNC và noVNC (tăng tốc CPU)
         run: |
           docker_exec() {
             if docker exec desktop-env which bash >/dev/null 2>&1; then
@@ -143,17 +142,19 @@ jobs:
               eval \`dbus-launch --sh-syntax\`
               echo \"DBUS_SESSION_BUS_ADDRESS=\$DBUS_SESSION_BUS_ADDRESS\"
               
-              Xvfb :99 -screen 0 1280x720x24 -ac &
+              # Xvfb với tối ưu GPU bằng CPU (GLX + DPI thấp)
+              Xvfb :99 -screen 0 1024x576x24 -ac -dpi 96 +extension GLX -nodpms &
               sleep 3
               
-              # Chạy XFCE session trực tiếp
+              # Chạy XFCE session với tăng tốc OpenGL
               startxfce4 &
               sleep 8
               
               # Nếu vẫn có màn hình login, kill lightdm (nếu chạy)
               pkill lightdm 2>/dev/null || true
               
-              x11vnc -display :99 -forever -shared -passwd ${{ github.event.inputs.vnc_password }} -rfbport 5900 -noxdamage &
+              # x11vnc với tối ưu cache và tốc độ
+              x11vnc -display :99 -forever -shared -passwd ${{ github.event.inputs.vnc_password }} -rfbport 5900 -noxdamage -ncache 10 -speedy &
               sleep 2
               
               if command -v websockify >/dev/null 2>&1; then
